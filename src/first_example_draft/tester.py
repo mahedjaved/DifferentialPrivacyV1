@@ -27,20 +27,25 @@ class WebsiteUser(HttpUser):
 
 
 # Function to manage user load dynamically
-def manage_user_load(env, total_runtime, base_user_count=50, peak_user_count=200, ramp_up_interval=5, peak_duration=1):
+def manage_user_load(env, total_runtime, base_user_count=50, peak_user_count=200, ramp_up_interval=5, peak_duration=1,
+                     rps_cap=40):
     """
     Manages user load dynamically based on the specified pattern.
     """
-    current_user_count = base_user_count
-    spawn_rate = base_user_count / ramp_up_interval  # Control the rate of spawning users
-    env.runner.start(current_user_count, spawn_rate)
-    print(f"Starting with {current_user_count} users")
-
     # After total time is done, drop users back to the base count
-    if current_user_count > base_user_count:
-        env.runner.start(base_user_count - current_user_count, spawn_rate)
-        current_user_count = base_user_count
-        print(f"Reducing to base count: {current_user_count} users")
+    # Adjust number of users if current RPS exceeds cap
+    if env.stats.total.current_rps > rps_cap:
+        base_user_count = env.runner.user_count - 10
+        if base_user_count != env.runner.user_count:
+            print(f"Decreasing RPS since current rps {env.stats.total.current_rps} is more than the RPS cap {rps_cap}")
+            env.runner.start(base_user_count, base_user_count)
+    # elif current_rps < rps_cap and current_user_count < peak_user_count:
+    elif env.stats.total.current_rps < rps_cap:
+        # If the RPS is below the cap, you can increase users to meet the target
+        base_user_count = env.runner.user_count + 10
+        if base_user_count != env.runner.user_count:
+            print(f"Increasing to {base_user_count} users to match desired RPS {rps_cap}.")
+            env.runner.start(base_user_count, base_user_count)
 
 
 # Function to run Locust test programmatically for a fixed duration
@@ -59,26 +64,18 @@ def run_locust_test(user_count, spawn_rate, run_time=5):
     # Start Web UI (optional, for debugging purposes)
     web_ui = env.create_web_ui("127.0.0.1", 8089)
 
-    # Variables to collect RPS data
-    rps_data = []
-    users_data = []
-    avgresptime_data = []
-
     # Manage user load for the total runtime of the test
     total_runtime = 5 * 60  # 5 minutes
-    manage_user_load(env, total_runtime)
-
-    # Capture RPS data every second for 5 minutes
     start_time = time.time()
+    # Variables to collect RPS data
+    actual_rps_data = []
+    users_data = []
+    avgresptime_data = []
+    env.runner.start(50, 50)
+    print("Starting with {50} users")
     while time.time() - start_time < total_runtime:
-        current_rps = env.stats.total.current_rps
-        current_user = env.runner.user_count
-        current_avgresptime = env.stats.total.avg_response_time
-        rps_data.append(current_rps)
-        users_data.append(current_user)
-        avgresptime_data.append(current_avgresptime)
-        plot_metrics(rps_data, avgresptime_data, users_data)
-        gevent.sleep(1)  # Capture RPS every 1 second
+        manage_user_load(env, total_runtime)
+        plot_metrics__(avgresptime_data, env, actual_rps_data, users_data)
 
     # Stop the Locust runner after the total runtime
     env.runner.stop()
@@ -92,6 +89,18 @@ def run_locust_test(user_count, spawn_rate, run_time=5):
     # # Plot RPS data in the main thread to avoid blocking
     # plot_rps_data(rps_data)  # Call the plot function directly here to ensure it waits
     # return rps_data
+
+
+def plot_metrics__(avgresptime_data, env, rps_data, users_data, total_runtime=5 * 60):
+    # Capture RPS data every second for 5 minutes
+    current_rps = env.stats.total.current_rps
+    current_user = env.runner.user_count
+    current_avgresptime = env.stats.total.avg_response_time
+    rps_data.append(current_rps)
+    users_data.append(current_user)
+    avgresptime_data.append(current_avgresptime)
+    plot_metrics(rps_data, avgresptime_data, users_data)
+    gevent.sleep(1)  # Capture RPS every 1 second
 
 
 # Separate function for plotting
