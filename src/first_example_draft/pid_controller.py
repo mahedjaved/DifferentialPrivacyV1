@@ -29,15 +29,15 @@ class WebsiteUser(HttpUser):
 
 
 # Set max length for the data collection (for example, 300 seconds)
-MAX_LENGTH = 300
-rps_data = deque(maxlen=MAX_LENGTH)
-users_data = deque(maxlen=MAX_LENGTH)
-avgresptime_data = deque(maxlen=MAX_LENGTH)
+# MAX_LENGTH = 300
+# rps_data = deque(maxlen=MAX_LENGTH)
+# users_data = deque(maxlen=MAX_LENGTH)
+# avgresptime_data = deque(maxlen=MAX_LENGTH)
 
 # PID controller constants
-Kp = 0.1  # Proportional constant
-Ki = 0.01  # Integral constant
-Kd = 0.05  # Derivative constant
+Kp = 0.9  # Proportional constant
+Ki = 0.1  # Integral constant
+Kd = 10  # Derivative constant
 
 # Initialize PID variables
 previous_error = 0
@@ -78,7 +78,7 @@ def manage_user_load_with_pid(env, target_rps=40, user_step=10, dt=1):
     # Calculate new user count based on PID output (making sure we don't go below a minimum number)
     new_user_count = max(10, int(env.runner.user_count + pid_output))  # Ensuring we don't go below 10 users
 
-    print(f"PID Control Output: {pid_output}, Adjusting users to {new_user_count}")
+    print(f"PID Control Output: {pid_output}, Previous Error: {previous_error}, Adjusting users to {new_user_count}")
 
     # Start or stop users to match the target RPS
     env.runner.start(new_user_count, new_user_count)
@@ -88,12 +88,12 @@ def plot_metrics__(avgresptime_data, env, rps_data, users_data, total_runtime=5 
     current_rps = env.stats.total.current_rps
     current_user = env.runner.user_count
     current_avgresptime = env.stats.total.avg_response_time
-    rps_data.append(current_rps)
-    users_data.append(current_user)
-    avgresptime_data.append(current_avgresptime)
+    # rps_data.append(current_rps)
+    # users_data.append(current_user)
+    # avgresptime_data.append(current_avgresptime)
 
     # Plot the metrics
-    plot_metrics(rps_data, avgresptime_data, users_data)
+    # plot_metrics(rps_data, avgresptime_data, users_data)
     gevent.sleep(1)  # Capture RPS every 1 second
 
 
@@ -132,14 +132,15 @@ def run_locust_test():
 
     web_ui = env.create_web_ui("127.0.0.1", 8089)
 
-    total_runtime = 5 * 60
+    total_runtime = 1 * 60 * 60
     start_time = time.time()
     env.runner.start(50, 50)
     print("Starting with 50 users")
 
     while time.time() - start_time < total_runtime:
-        manage_user_load_with_pid(env)
-        plot_metrics__(avgresptime_data, env, rps_data, users_data)
+        manage_user_load_with_pid(env, target_rps=40)
+        # plot_metrics__(avgresptime_data, env, rps_data, users_data)
+        gevent.sleep(1)
 
     env.runner.stop()
     while env.runner.state != 'STOPPED':
